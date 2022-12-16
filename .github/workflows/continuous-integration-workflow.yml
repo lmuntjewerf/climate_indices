@@ -1,6 +1,10 @@
 name: build
 
-on: [pull_request]
+on:
+  push:
+    branches: [ "work_Emmadd_spei_fisk" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
