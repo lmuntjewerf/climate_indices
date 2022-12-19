@@ -19,6 +19,7 @@ class Distribution(Enum):
 
     pearson = "pearson"
     gamma = "gamma"
+    fisk = "fisk"
 
 
 # ------------------------------------------------------------------------------
@@ -29,34 +30,6 @@ _logger = utils.get_logger(__name__, logging.DEBUG)
 # valid upper and lower bounds for indices that are fitted/transformed to a distribution (SPI and SPEI)
 _FITTED_INDEX_VALID_MIN = -3.09
 _FITTED_INDEX_VALID_MAX = 3.09
-
-
-def _norm_fitdict(params: Dict):
-    """
-    Compatibility shim. Convert old accepted parameter dictionaries
-    into new, consistently keyed parameter dictionaries. If given
-    a None object, None is returned.
-
-    See https://github.com/monocongo/climate_indices/issues/449
-    """
-    if params is None:
-        return params
-
-    normed = {}
-    for name, altname in _fit_altnames:
-        val = params.get(name, None)
-        if val is None:
-            if altname not in params:
-                continue
-            _logger.warning("Using deprecated fitting parameter key %s."
-                            " Use %s instead.",
-                            altname, name)
-            val = params[altname]
-        normed[name] = val
-    return normed
-_fit_altnames = (("alpha", "alphas"), ("beta", "betas"),
-                 ("skew", "skews"), ("scale", "scales"), ("loc", "locs"),
-                 ("prob_zero", "probabilities_of_zero"))
 
 
 # ------------------------------------------------------------------------------
@@ -95,9 +68,9 @@ def spi(
          of the final year filled with NaN values, with array size == (# years * 366)
     :param fitting_params: optional dictionary of pre-computed distribution
         fitting parameters, if the distribution is gamma then this dict should
-        contain two arrays, keyed as "alpha" and "beta", and if the
+        contain two arrays, keyed as "alphas" and "betas", and if the
         distribution is Pearson then this dict should contain four arrays keyed
-        as "prob_zero", "loc", "scale", and "skew".
+        as "probabilities_of_zero", "locs", "scales", and "skews"
     :return SPI values fitted to the gamma distribution at the specified time
         step scale, unitless
     :rtype: 1-D numpy.ndarray of floats of the same length as the input array
@@ -122,7 +95,7 @@ def spi(
 
     # clip any negative values to zero
     if np.amin(values) < 0.0:
-        _logger.warning("Input contains negative values -- all negatives clipped to zero")
+        _logger.warn("Input contains negative values -- all negatives clipped to zero")
         values = np.clip(values, a_min=0.0, a_max=None)
 
     # remember the original length of the array, in order to facilitate
@@ -254,17 +227,13 @@ def spei(
     :param calibration_year_final: final year of the calibration period
     :param fitting_params: optional dictionary of pre-computed distribution
         fitting parameters, if the distribution is gamma then this dict should
-        contain two arrays, keyed as "alpha" and "beta", and if the
+        contain two arrays, keyed as "alphas" and "betas", and if the
         distribution is Pearson then this dict should contain four arrays keyed
-        as "prob_zero", "loc", "scale", and "skew"
-        Older keys such as "alphas" and "probabilities_of_zero" are deprecated.
+        as "probabilities_of_zero", "locs", "scales", and "skews"
     :return: an array of SPEI values
     :rtype: numpy.ndarray of type float, of the same size and shape as the input
         PET and precipitation arrays
     """
-
-    # Normalize fitting param keys
-    fitting_params = _norm_fitdict(fitting_params)
 
     # if we're passed all missing values then we can't compute anything,
     # so we return the same array of missing values
@@ -280,7 +249,7 @@ def spei(
 
     # clip any negative values to zero
     if np.amin(precips_mm) < 0.0:
-        _logger.warning("Input contains negative values -- all negatives clipped to zero")
+        _logger.warn("Input contains negative values -- all negatives clipped to zero")
         precips_mm = np.clip(precips_mm, a_min=0.0, a_max=None)
 
     # subtract the PET from precipitation, adding an offset
@@ -299,8 +268,8 @@ def spei(
 
         # get (optional) fitting parameters if provided
         if fitting_params is not None:
-            alphas = fitting_params["alpha"]
-            betas = fitting_params["beta"]
+            alphas = fitting_params["alphas"]
+            betas = fitting_params["betas"]
         else:
             alphas = None
             betas = None
@@ -322,10 +291,10 @@ def spei(
 
         # get (optional) fitting parameters if provided
         if fitting_params is not None:
-            probabilities_of_zero = fitting_params["prob_zero"]
-            locs = fitting_params["loc"]
-            scales = fitting_params["scale"]
-            skews = fitting_params["skew"]
+            probabilities_of_zero = fitting_params["probabilities_of_zero"]
+            locs = fitting_params["locs"]
+            scales = fitting_params["scales"]
+            skews = fitting_params["skews"]
         else:
             probabilities_of_zero = None
             locs = None
@@ -345,6 +314,35 @@ def spei(
                 locs,
                 scales,
                 skews,
+            )
+
+    elif distribution is Distribution.fisk:
+
+        # get (optional) fitting parameters if provided
+        if fitting_params is not None:
+            probabilities_of_zero = fitting_params["probabilities_of_zero"]
+            locs = fitting_params["locs"]
+            scales = fitting_params["scales"]
+            c = fitting_params["c"]
+        else:
+            probabilities_of_zero = None
+            locs = None
+            scales = None
+            c = None
+
+        # fit the scaled values to a log-logistic/fisk distribution
+        # and transform to corresponding normalized sigmas
+        transformed_fitted_values = \
+            compute.transform_fitted_fisk(
+                scaled_values,
+                data_start_year,
+                calibration_year_initial,
+                calibration_year_final,
+                periodicity,
+                probabilities_of_zero,
+                locs,
+                scales,
+                c,
             )
 
     else:
@@ -494,7 +492,7 @@ def percentage_of_normal(values: np.ndarray,
             "Invalid start year arguments (data and/or calibration): "
             "calibration start year is before the data start year",
         )
-    if ((calibration_end_year - calibration_start_year + 1) * 12) > values.size:
+    elif ((calibration_end_year - calibration_start_year + 1) * 12) > values.size:
         raise ValueError(
             "Invalid calibration period specified: total calibration years "
             "exceeds the actual number of years of data",
@@ -562,12 +560,13 @@ def pet(temperature_celsius: np.ndarray,
         # we started with all NaNs for the temperature, so just return the same as PET
         return temperature_celsius
 
+    else:
 
-    # we were passed a vanilla Numpy array, look for indices where the value == NaN
-    if np.all(np.isnan(temperature_celsius)):
+        # we were passed a vanilla Numpy array, look for indices where the value == NaN
+        if np.all(np.isnan(temperature_celsius)):
 
-        # we started with all NaNs for the temperature, so just return the same
-        return temperature_celsius
+            # we started with all NaNs for the temperature, so just return the same
+            return temperature_celsius
 
     # If we've been passed an array of latitude values then just use
     # the first one -- useful when applying this function with xarray.GroupBy
@@ -577,7 +576,10 @@ def pet(temperature_celsius: np.ndarray,
         latitude_degrees = latitude_degrees.flat[0]
 
     # make sure we're not dealing with a NaN or out-of-range latitude value
-    if ((latitude_degrees is not None) and not np.isnan(latitude_degrees) and (-90.0 < latitude_degrees < 90.0) ):
+    if ((latitude_degrees is not None)
+            and not np.isnan(latitude_degrees)
+            and (latitude_degrees < 90.0)
+            and (latitude_degrees > -90.0)):
 
         # compute and return the PET values using Thornthwaite's equation
         return eto.eto_thornthwaite(
@@ -586,69 +588,9 @@ def pet(temperature_celsius: np.ndarray,
             data_start_year,
         )
 
-
-    message = ("Invalid latitude value: " + str(latitude_degrees) +
-               " (must be in degrees north, between -90.0 and " +
-               "90.0 inclusive)")
-    _logger.error(message)
-    raise ValueError(message)
-
-
-# ------------------------------------------------------------------------------
-@numba.jit
-def pci(rainfall_mm: np.ndarray) -> np.ndarray:
-    """
-    This function computes Precipitation Concentration Index(PCI, Oliver, 1980).
-
-    :param rainfall_mm: an array of daily rainfall value in a year,
-        in mm
-    :return: PCI value for the year in aa numpy array
-    :rtype: 1-D numpy.ndarray of float
-    """
-
-    # make sure we're not dealing with all NaN values
-    if np.ma.isMaskedArray(rainfall_mm) and (rainfall_mm.count() == 0):
-
-        # we started with all NaNs for the rainfall, so just return the same
-        return rainfall_mm
-        
-    # we were passed a vanilla Numpy array, look for indices where the value == NaN
-    if np.all(np.isnan(rainfall_mm)):
-    
-        # we started with all NaNs for the rainfall, so just return the same
-        return rainfall_mm
-
-
-    # make sure we're not dealing with a NaN or out-of-range or less than the expected rainfall value
-    if (len(rainfall_mm) == 366 and not sum( np.isnan(rainfall_mm) )):
-        m = [31, 29, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
-        start = 0
-        numerator = 0
-        denominator = 0
-
-        for month in range(12):
-            numerator = numerator + ( sum(rainfall_mm[start : m[month]]) ** 2 )
-            denominator = denominator + sum(rainfall_mm[start : m[month]])
-
-            start = m[month]
-
-        return np.array([ (numerator/(denominator**2)) * 100 ])
-
-
-    if (len(rainfall_mm) == 365 and not sum( np.isnan(rainfall_mm) )):
-        m = [31, 28, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
-        start = 0
-        numerator = 0
-        denominator = 0
-
-        for month in range(12):
-            numerator = numerator + ( sum(rainfall_mm[start : m[month]]) ** 2 )
-            denominator = denominator + sum(rainfall_mm[start : m[month]])
-
-            start = m[month]
-
-        return np.array([ (numerator/(denominator**2)) * 100])
-    
-    message = ("NaN values in time-series or Total Number of days not in year not available, total days should be 366 or 365")
-    _logger.error(message)
-    raise ValueError(message)
+    else:
+        message = ("Invalid latitude value: " + str(latitude_degrees) +
+                   " (must be in degrees north, between -90.0 and " +
+                   "90.0 inclusive)")
+        _logger.error(message)
+        raise ValueError(message)
