@@ -770,7 +770,10 @@ def _compute_write_index(keyword_arguments):
         precip_var_name = keyword_arguments["var_name_precip"]
         precip_unit = dataset[precip_var_name].units.lower()
         if precip_unit not in ("mm", "millimeters", "millimeter", "mm/dy"):
-            if precip_unit in ("inches", "inch"):
+            if precip_unit in ("kg m-2 s-1"):
+                #  to mm/s conversion to mm day (1 day == 60*60*24 s)
+                dataset[precip_var_name].values *= 60*60*24
+            elif precip_unit in ("inches", "inch"):
                 # inches to mm conversion (1 inch == 25.4 mm)
                 dataset[precip_var_name].values *= 25.4
             else:
