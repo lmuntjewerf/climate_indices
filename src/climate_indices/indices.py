@@ -57,7 +57,7 @@ def _norm_fitdict(params: Dict):
     return normed
 _fit_altnames = (("alpha", "alphas"), ("beta", "betas"),
                  ("skew", "skews"), ("scale", "scales"), ("loc", "locs"),
-                 ("prob_zero", "probabilities_of_zero"))
+                 ("prob_zero", "probabilities_of_zero"), ("c", "cs"))
 
 
 # ------------------------------------------------------------------------------
@@ -96,9 +96,11 @@ def spi(
          of the final year filled with NaN values, with array size == (# years * 366)
     :param fitting_params: optional dictionary of pre-computed distribution
         fitting parameters, if the distribution is gamma then this dict should
-        contain two arrays, keyed as "alpha" and "beta", and if the
+        contain two arrays, keyed as "alpha" and "beta"; if the
         distribution is Pearson then this dict should contain four arrays keyed
-        as "prob_zero", "loc", "scale", and "skew".
+        as "prob_zero", "loc", "scale", and "skew"; and is the distribution is fisk
+        then the dict should contain four arrays keyed as "prob_zero", "loc", 
+        "scale", and "c".
     :return SPI values fitted to the gamma distribution at the specified time
         step scale, unitless
     :rtype: 1-D numpy.ndarray of floats of the same length as the input array
@@ -196,6 +198,33 @@ def spi(
             scales,
             skews,
         )
+    elif distribution is Distribution.fisk:
+
+        # get (optional) fitting parameters if provided
+        if fitting_params is not None:
+            probabilities_of_zero = fitting_params["prob_zero"]
+            locs = fitting_params["loc"]
+            scales = fitting_params["scale"]
+            c = fitting_params["c"]
+        else:
+            probabilities_of_zero = None
+            locs = None
+            scales = None
+            c = None
+
+        # fit the scaled values to a log-logistic/fisk distribution
+        # and transform to corresponding normalized sigmas
+        values = compute.transform_fitted_fisk(
+                values,
+                data_start_year,
+                calibration_year_initial,
+                calibration_year_final,
+                periodicity,
+                probabilities_of_zero,
+                locs,
+                scales,
+                c,
+            )
 
     else:
 
@@ -255,9 +284,11 @@ def spei(
     :param calibration_year_final: final year of the calibration period
     :param fitting_params: optional dictionary of pre-computed distribution
         fitting parameters, if the distribution is gamma then this dict should
-        contain two arrays, keyed as "alpha" and "beta", and if the
+        contain two arrays, keyed as "alpha" and "beta"; if the
         distribution is Pearson then this dict should contain four arrays keyed
-        as "prob_zero", "loc", "scale", and "skew"
+        as "prob_zero", "loc", "scale", and "skew"; and is the distribution is fisk
+        then the dict should contain four arrays keyed as "prob_zero", "loc", 
+        "scale", and "c".
         Older keys such as "alphas" and "probabilities_of_zero" are deprecated.
     :return: an array of SPEI values
     :rtype: numpy.ndarray of type float, of the same size and shape as the input

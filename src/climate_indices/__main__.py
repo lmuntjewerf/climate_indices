@@ -1319,7 +1319,8 @@ def _parallel_process(index: str,
                               initializer=_init_worker,
                               initargs=(arrays_dict,)) as pool:
 
-        if index in ["spei", "pet"]:
+        #if index in ["spei", "pet"]:
+        if index in ["pet"]:
             pool.map(_apply_along_axis_double, chunk_params)
         elif index == "palmers":
             pool.map(_apply_along_axis_palmers, chunk_params)

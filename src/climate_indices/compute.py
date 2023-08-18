@@ -849,7 +849,7 @@ def fisk_parameters(
 
     # the values we'll compute and return
     probabilities_of_zero = np.zeros((time_steps_per_year,))
-    c = np.zeros((time_steps_per_year,))
+    cs = np.zeros((time_steps_per_year,))
     scales = np.zeros((time_steps_per_year,))
     locs = np.zeros((time_steps_per_year,))
 
@@ -885,11 +885,11 @@ def fisk_parameters(
 
             # get the fisk parameters for this time
             # step's values within the calibration period
-            c[time_step_index], scales[time_step_index], locs[time_step_index], = \
+            cs[time_step_index], scales[time_step_index], locs[time_step_index], = \
                 scipy.stats.fisk.fit(time_step_values)
             probabilities_of_zero[time_step_index] = probability_of_zero
 
-    return probabilities_of_zero, c, scales, locs
+    return probabilities_of_zero, cs, scales, locs
 
 
 # ------------------------------------------------------------------------------
@@ -897,7 +897,7 @@ def fisk_parameters(
 def _fisk_fit(
         values: np.ndarray,
         probabilities_of_zero: np.ndarray,
-        c: np.ndarray,
+        cs: np.ndarray,
         scale: np.ndarray,
         loc: np.ndarray,
 ) -> np.ndarray:
@@ -922,7 +922,7 @@ def _fisk_fit(
         trace_mask = np.logical_and((values < 0.0005), (probabilities_of_zero <= 0.0))
 
         # get the log-logistic/fisk cumulative density function value
-        probabilities = scipy.stats.fisk.cdf(values, c, scale, loc)
+        probabilities = scipy.stats.fisk.cdf(values, cs, scale, loc)
 
         if not np.all(np.isnan(probabilities)):
 
@@ -955,7 +955,7 @@ def transform_fitted_fisk(
         probabilities_of_zero: np.ndarray = None,
         locs: np.ndarray = None,
         scales: np.ndarray = None,
-        c: np.ndarray = None,
+        cs: np.ndarray = None,
 ) -> np.ndarray:
     """
     Fit values to a log-logistic/fisk distribution and transform the values
@@ -989,7 +989,7 @@ def transform_fitted_fisk(
     """
 
     # sanity check for the fitting parameters arguments
-    fisk_param_args = [probabilities_of_zero, locs, scales, c]
+    fisk_param_args = [probabilities_of_zero, locs, scales, cs]
     if any(param_arg is None for param_arg in fisk_param_args):
         if fisk_param_args.count(None) < len(fisk_param_args):
             raise ValueError(
@@ -1019,7 +1019,7 @@ def transform_fitted_fisk(
             calibration_end_year = data_end_year
 
         # compute the values we'll use to fit to the log-logistic/fisk distribution
-        probabilities_of_zero, c, scales, locs = \
+        probabilities_of_zero, cs, scales, locs = \
             fisk_parameters(
                 values,
                 data_start_year,
@@ -1029,6 +1029,6 @@ def transform_fitted_fisk(
             )
 
     # fit each value to the log-logistic/fisk distribution
-    values = _fisk_fit(values, probabilities_of_zero, c, scales, locs)
+    values = _fisk_fit(values, probabilities_of_zero, cs, scales, locs)
 
     return values

@@ -16,7 +16,7 @@ from climate_indices import compute
 from climate_indices import utils, indices
 
 # variable names for the distribution fitting parameters
-_FITTING_VARIABLES = ("alpha", "beta", "skew", "loc", "scale", "prob_zero")
+_FITTING_VARIABLES = ("alpha", "beta", "skew", "loc", "scale", "c", "prob_zero")
 
 # location of the package on GitHub (for documentation within NetCDFs)
 _GITHUB_URL = "https://github.com/monocongo/climate_indices"
@@ -597,13 +597,16 @@ def _compute_write_index(keyword_arguments):
                     'description': 'probability of zero values within calibration period'
                 },
                 "loc": {
-                    'description': 'loc parameter for Pearson Type III',
+                    'description': 'loc parameter for Pearson Type III and for Fisk',
                 },
                 "scale": {
-                    'description': 'scale parameter for Pearson Type III',
+                    'description': 'scale parameter for Pearson Type III and for Fisk',
                 },
                 "skew": {
                     'description': 'skew parameter for Pearson Type III',
+                },
+                "c": {
+                    'description': 'c (shape) parameter for Fisk',
                 },
             }
 
@@ -633,7 +636,10 @@ def _compute_write_index(keyword_arguments):
         precip_var_name = keyword_arguments["var_name_precip"]
         precip_unit = ds_precip[precip_var_name].units.lower()
         if precip_unit not in ("mm", "millimeters", "millimeter", "mm/dy"):
-            if precip_unit in ("inches", "inch"):
+            if precip_unit in ("kg m-2 s-1"):
+                #  to mm/s conversion to mm day (1 day == 60*60*24 s)
+                ds_precip[precip_var_name].values *= 60*60*24
+            elif precip_unit in ("inches", "inch"):
                 # inches to mm conversion (1 inch == 25.4 mm)
                 ds_precip[precip_var_name].values *= 25.4
             else:
